@@ -38,7 +38,8 @@ pub use gilrs_core::PowerInfo;
 #[cfg(feature = "serde-serialize")]
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_DEADZONE: f32 = 0.1;
+// const DEFAULT_DEADZONE: f32 = 0.1;
+const DEFAULT_DEADZONE: f32 = 0.0;  // dont use deadzone by default
 
 /// Main object responsible of managing gamepads.
 ///
