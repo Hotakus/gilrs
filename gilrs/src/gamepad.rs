@@ -228,11 +228,11 @@ impl Gilrs {
 
             match event {
                 Some(RawEvent {
-                    id,
-                    event: event_type,
-                    time,
-                    ..
-                }) => {
+                         id,
+                         event: event_type,
+                         time,
+                         ..
+                     }) => {
                     trace!("Original event: {:?}", event);
                     let id = GamepadId(id);
 
@@ -371,6 +371,9 @@ impl Gilrs {
                     Some(Event { id, event, time })
                 }
                 None => None,
+                _ => {
+                    None
+                }
             }
         }
     }
@@ -471,7 +474,9 @@ impl Gilrs {
     pub fn gamepad(&self, id: GamepadId) -> Gamepad {
         Gamepad {
             inner: self.inner.gamepad(id.0).unwrap(),
+            stick_deadzone: DEFAULT_DEADZONE,
             data: &self.gamepads_data[id.0],
+            trigger_deadzone: DEFAULT_DEADZONE,
         }
     }
 
@@ -483,7 +488,7 @@ impl Gilrs {
             let inner = self.inner.gamepad(id.0)?;
 
             if inner.is_connected() {
-                Some(Gamepad { inner, data })
+                Some(Gamepad { inner, stick_deadzone: DEFAULT_DEADZONE, data, trigger_deadzone: DEFAULT_DEADZONE })
             } else {
                 None
             }
@@ -790,6 +795,8 @@ impl<'a> Iterator for ConnectedGamepadsIterator<'a> {
 pub struct Gamepad<'a> {
     data: &'a GamepadData,
     inner: &'a gilrs_core::Gamepad,
+    stick_deadzone: f32,
+    trigger_deadzone: f32,
 }
 
 impl Gamepad<'_> {
@@ -800,6 +807,14 @@ impl Gamepad<'_> {
         } else {
             self.os_name()
         }
+    }
+
+    pub fn set_stick_deadzone(&mut self, deadzone: f32) {
+        self.stick_deadzone = deadzone.clamp(0.0, 1.0);
+    }
+
+    pub fn set_trigger_deadzone(&mut self, deadzone: f32) {
+        self.trigger_deadzone = deadzone.clamp(0.0, 1.0);
     }
 
     /// if `mapping_source()` is `SdlMappings` returns the name of the mapping used by the gamepad.
@@ -951,9 +966,19 @@ impl Gamepad<'_> {
             if range == 0.0 {
                 0.0
             } else {
+                let mut deadzone: f32 = 0.0;
+                let a = self.axis_or_btn_name(axis).unwrap();
+                if (a.is_button()) {
+                    deadzone = self.trigger_deadzone;
+                    println!("is button");
+                } else {
+                    deadzone = self.stick_deadzone;
+                    println!("is stick");
+                }
+
                 i.deadzone
-                    .map(|d| d as f32 / range * 2.0)
-                    .unwrap_or(DEFAULT_DEADZONE)
+                 .map(|d| d as f32 / range * 2.0)
+                 .unwrap_or(deadzone)
             }
         })
     }
