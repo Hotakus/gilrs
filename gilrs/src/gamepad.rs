@@ -970,10 +970,8 @@ impl Gamepad<'_> {
                 let a = self.axis_or_btn_name(axis).unwrap();
                 if (a.is_button()) {
                     deadzone = self.trigger_deadzone;
-                    println!("is button");
                 } else {
                     deadzone = self.stick_deadzone;
-                    println!("is stick");
                 }
 
                 i.deadzone
