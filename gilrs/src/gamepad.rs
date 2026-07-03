@@ -967,11 +967,13 @@ impl Gamepad<'_> {
                 0.0
             } else {
                 let mut deadzone: f32 = 0.0;
-                let a = self.axis_or_btn_name(axis).unwrap();
-                if (a.is_button()) {
-                    deadzone = self.trigger_deadzone;
-                } else {
-                    deadzone = self.stick_deadzone;
+                match self.axis_or_btn_name(axis) {
+                    Some(a) if a.is_button() => deadzone = self.trigger_deadzone,
+                    Some(_) => deadzone = self.stick_deadzone,
+                    None => {
+                        warn!("axis_or_btn_name returned None for {:?}, using stick_deadzone as fallback", axis);
+                        deadzone = self.stick_deadzone;
+                    }
                 }
 
                 i.deadzone
