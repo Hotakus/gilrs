@@ -551,37 +551,33 @@ impl Gamepad {
             Err(_) => "unknown".to_string(),
         };
 
-        let uuid = match wgi_gamepad.is_some() {
-            true => Uuid::nil(),
-            false => {
-                let vendor_id = raw_game_controller.HardwareVendorId().unwrap_or(0).to_be();
-                let product_id = raw_game_controller.HardwareProductId().unwrap_or(0).to_be();
-                let version = 0;
+        // SDL GameControllerDB 的 GUID 使用小端序编码 bustype/vid/pid。
+        // gilrs 原实现用 Uuid::from_fields（大端序）+ WgiGamepad 路径返回 nil UUID，
+        // 导致 SDL DB 查询永远 miss（详见 gilrs issue #190）。
+        // 此处统一改用 from_fields_le（小端序），让 UUID 与 SDL DB GUID 对齐。
+        let vendor_id = raw_game_controller.HardwareVendorId().unwrap_or(0);
+        let product_id = raw_game_controller.HardwareProductId().unwrap_or(0);
+        let version: u16 = 0;
 
-                // SDL uses the SDL_HARDWARE_BUS_BLUETOOTH bustype for IsWireless devices:
-                // https://github.com/libsdl-org/SDL/blob/294ccba0a23b37fffef62189423444f93732e565/src/joystick/windows/SDL_windows_gaming_input.c#L335-L338
-                // In my testing though, it caused my controllers to not find mappings.
-                // SDL only uses their WGI implementation for UWP apps so I guess it hasn't been
-                // used enough for people to submit mappings with the different bustype.
-                let bustype = SDL_HARDWARE_BUS_USB.to_be();
+        // 无线设备使用 Bluetooth bustype（0x05），有线设备使用 USB bustype（0x03）。
+        // SDL DB 里同一手柄可能存在两种 bustype 的条目；优先用 USB 以匹配大部分条目。
+        let bustype = SDL_HARDWARE_BUS_USB;
 
-                Uuid::from_fields(
-                    bustype,
-                    vendor_id,
-                    0,
-                    &[
-                        (product_id >> 8) as u8,
-                        product_id as u8,
-                        0,
-                        0,
-                        (version >> 8) as u8,
-                        version as u8,
-                        0,
-                        0,
-                    ],
-                )
-            }
-        };
+        let uuid = Uuid::from_fields_le(
+            bustype,
+            vendor_id,
+            0,
+            &[
+                (product_id & 0xff) as u8,
+                (product_id >> 8) as u8,
+                0,
+                0,
+                (version & 0xff) as u8,
+                (version >> 8) as u8,
+                0,
+                0,
+            ],
+        );
 
         let mut gamepad = Gamepad {
             id,
