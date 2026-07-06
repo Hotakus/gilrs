@@ -164,7 +164,30 @@ impl Gilrs {
                         }
                     }
 
+                    // 诊断日志：首次输出控制器列表
+                    static ENUM_CNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                    let enum_cnt = ENUM_CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if enum_cnt == 0 {
+                        log::debug!(
+                            "[WGI] 枚举到 {} 个 RawGameController",
+                            controllers.len()
+                        );
+                    }
+
                     for controller in controllers.iter() {
+                        // 首次遍历时输出每个控制器的诊断信息
+                        if enum_cnt == 0 {
+                            let name = controller.DisplayName()
+                                .map(|s| s.to_string_lossy())
+                                .unwrap_or_else(|_| "?".to_string());
+                            let hw_vid = controller.HardwareVendorId().unwrap_or(0);
+                            let hw_pid = controller.HardwareProductId().unwrap_or(0);
+                            let is_wgi_gamepad = WgiGamepad::FromGameController(controller).is_ok();
+                            log::debug!(
+                                "[WGI] \"{}\" vid={:04x} pid={:04x} WgiGamepad={}",
+                                name, hw_vid, hw_pid, is_wgi_gamepad
+                            );
+                        }
                         let id: HSTRING = match controller.NonRoamableId() {
                             Ok(id) => id,
                             Err(e) => {
@@ -217,6 +240,19 @@ impl Gilrs {
                             controller,
                             &tx,
                         );
+
+                        // 诊断：每 125 次轮询（≈1s）输出一次事件统计
+                        static WGI_TICK_CNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                        let tick = WGI_TICK_CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if tick % 125 == 0 {
+                            let name = controller.DisplayName()
+                                .map(|s| s.to_string_lossy())
+                                .unwrap_or_else(|_| "?".to_string());
+                            log::debug!(
+                                "[WGI] tick {tick}: \"{name}\" 发送事件, t={:?}",
+                                new_reading.time()
+                            );
+                        }
                     }
                     thread::sleep(Duration::from_millis(EVENT_THREAD_SLEEP_TIME));
                 }
