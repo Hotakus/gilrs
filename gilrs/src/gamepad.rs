@@ -339,12 +339,21 @@ impl Gilrs {
                                     ));
                                 }
                                 Ordering::Less => {
-                                    self.gamepads_data[id.0] = GamepadData::new(
-                                        id,
-                                        self.tx.clone(),
-                                        self.inner.gamepad(id.0).unwrap(),
-                                        &self.mappings,
+                                    // 不替换整个 GamepadData，避免已积累的 state 被清零。
+                                    // 仅在断线重连时重建 FF 通道，并重置死区标志位。
+                                    log::debug!(
+                                        "[gilrs] Connected 跳过替换 gamepads_data[{}]（保留 state）",
+                                        id.0
                                     );
+                                    if let Some(gamepad) = self.inner.gamepad(id.0) {
+                                        if gamepad.is_ff_supported() && gamepad.is_connected() {
+                                            if let Some(device) = gamepad.ff_device() {
+                                                let _ = self.tx.send(Message::Open { id: id.0, device });
+                                            }
+                                        }
+                                    }
+                                    self.gamepads_data[id.0].have_sent_nonzero_for_axis =
+                                        Default::default();
                                 }
                                 Ordering::Greater => {
                                     error!(

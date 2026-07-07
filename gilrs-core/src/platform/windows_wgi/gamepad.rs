@@ -113,6 +113,14 @@ impl Gilrs {
         let added_tx = tx.clone();
         let added_handler = EventHandler::<RawGameController>::new(move |_, g| {
             if let Some(g) = g.as_ref() {
+                let name = g.DisplayName()
+                    .map(|s| s.to_string_lossy())
+                    .unwrap_or_else(|_| "?".to_string());
+                let vid = g.HardwareVendorId().unwrap_or(0);
+                let pid = g.HardwareProductId().unwrap_or(0);
+                log::debug!(
+                    "[WGI] RawGameControllerAdded: \"{name}\" vid={vid:04x} pid={pid:04x}"
+                );
                 added_tx
                     .send(WgiEvent::new(g.clone(), EventType::Connected))
                     .expect("should be able to send to main thread");
