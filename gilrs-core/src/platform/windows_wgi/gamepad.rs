@@ -172,12 +172,12 @@ impl Gilrs {
                         }
                     }
 
-                    // 诊断日志：首次输出控制器列表
+                    // 诊断日志：首条及每 500 次迭代（≈4s）输出控制器列表
                     static ENUM_CNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
                     let enum_cnt = ENUM_CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if enum_cnt == 0 {
+                    if enum_cnt == 0 || enum_cnt % 500 == 0 {
                         log::debug!(
-                            "[WGI] 枚举到 {} 个 RawGameController",
+                            "[WGI] 枚举 #{enum_cnt}: {} 个 RawGameController",
                             controllers.len()
                         );
                     }
@@ -237,11 +237,6 @@ impl Gilrs {
                             }
                         }
 
-                        // Skip if this is the same reading as the last one.
-                        if old_reading.time() == new_reading.time() {
-                            continue;
-                        }
-
                         Reading::send_events_for_differences(
                             old_reading,
                             new_reading,
@@ -288,7 +283,7 @@ impl Gilrs {
     }
 
     pub(crate) fn next_event_blocking(&mut self, timeout: Option<Duration>) -> Option<Event> {
-        if let Some(timeout) = timeout {
+        let res = if let Some(timeout) = timeout {
             self.rx
                 .recv_timeout(timeout)
                 .ok()
@@ -298,7 +293,15 @@ impl Gilrs {
                 .recv()
                 .ok()
                 .map(|wgi_event: WgiEvent| self.handle_event(wgi_event))
+        };
+        static WGI_NBE_CNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = WGI_NBE_CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if res.is_some() {
+            log::debug!("[WGI-next_event_blocking] #{n}: got event");
+        } else if n % 1000 == 0 {
+            log::debug!("[WGI-next_event_blocking] #{n}: timeout (no event)");
         }
+        res
     }
 
     fn handle_event(&mut self, wgi_event: WgiEvent) -> Event {
@@ -595,33 +598,40 @@ impl Gamepad {
             Err(_) => "unknown".to_string(),
         };
 
-        // SDL GameControllerDB 的 GUID 使用小端序编码 bustype/vid/pid。
-        // gilrs 原实现用 Uuid::from_fields（大端序）+ WgiGamepad 路径返回 nil UUID，
-        // 导致 SDL DB 查询永远 miss（详见 gilrs issue #190）。
-        // 此处统一改用 from_fields_le（小端序），让 UUID 与 SDL DB GUID 对齐。
-        let vendor_id = raw_game_controller.HardwareVendorId().unwrap_or(0);
-        let product_id = raw_game_controller.HardwareProductId().unwrap_or(0);
-        let version: u16 = 0;
+        // WGI 已将手柄按键标准化为 Xbox 布局（如 PS4 Cross → WGI A → BTN_SOUTH），
+        // 无需 SDL DB 二次重映射。重映射会使用 DirectInput 的 native button index
+        // 来翻译 WGI 的上报，导致几乎所有按键错位。
+        // 因此 WGI 设备返回 nil UUID，跳过 SDL DB lookup，直接使用 WGI 原生映射。
+        //
+        // DirectInput 设备（无 wgi_gamepad）仍然走 SDL DB，使用小端序 UUID 以匹配
+        // SDL GameControllerDB 的 GUID 格式（详见 gilrs issue #190）。
+        let uuid = if wgi_gamepad.is_some() {
+            Uuid::nil()
+        } else {
+            let vendor_id = raw_game_controller.HardwareVendorId().unwrap_or(0);
+            let product_id = raw_game_controller.HardwareProductId().unwrap_or(0);
+            let version: u16 = 0;
 
-        // 无线设备使用 Bluetooth bustype（0x05），有线设备使用 USB bustype（0x03）。
-        // SDL DB 里同一手柄可能存在两种 bustype 的条目；优先用 USB 以匹配大部分条目。
-        let bustype = SDL_HARDWARE_BUS_USB;
+            // 无线设备使用 Bluetooth bustype（0x05），有线设备使用 USB bustype（0x03）。
+            // SDL DB 里同一手柄可能存在两种 bustype 的条目；优先用 USB 以匹配大部分条目。
+            let bustype = SDL_HARDWARE_BUS_USB;
 
-        let uuid = Uuid::from_fields_le(
-            bustype,
-            vendor_id,
-            0,
-            &[
-                (product_id & 0xff) as u8,
-                (product_id >> 8) as u8,
+            Uuid::from_fields_le(
+                bustype,
+                vendor_id,
                 0,
-                0,
-                (version & 0xff) as u8,
-                (version >> 8) as u8,
-                0,
-                0,
-            ],
-        );
+                &[
+                    (product_id & 0xff) as u8,
+                    (product_id >> 8) as u8,
+                    0,
+                    0,
+                    (version & 0xff) as u8,
+                    (version >> 8) as u8,
+                    0,
+                    0,
+                ],
+            )
+        };
 
         let mut gamepad = Gamepad {
             id,

@@ -236,6 +236,13 @@ impl Gilrs {
                     trace!("Original event: {:?}", event);
                     let id = GamepadId(id);
 
+                    // 诊断：每 125 个事件打印一次
+                    static RAW_EVT_CNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                    let n = RAW_EVT_CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if n == 0 || n % 125 == 0 {
+                        log::debug!("[gilrs] RawEvent #{n}: id={id} type={event_type:?}");
+                    }
+
                     let event = match event_type {
                         RawEventType::ButtonPressed(nec) => {
                             let nec = Code(nec);
